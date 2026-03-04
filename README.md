@@ -141,6 +141,126 @@ You can also render the pre-trained 3DGS model without segmentation:
 python render.py -m <path to the pre-trained 3DGS model> --target scene
 ```
 
+## Stage 3: Semantic Objectification & .gscene Export
+
+Stage 3 converts the trained 3DGS scene into a structured, object-level representation for downstream applications (e.g., Unity integration). It uses multi-view voting on SAM masks to assign each 3D Gaussian an object ID, then exports the scene as a `.gscene` package.
+
+### Prerequisites
+
+Before running Stage 3, you must have completed:
+
+1. **Pre-trained 3DGS model** (`train_scene.py`)
+2. **SAM masks extracted** (`extract_segment_everything_masks.py`)
+
+```bash
+# Step 1: Train 3D Gaussians (if not done)
+python train_scene.py -s <path to scene data>
+
+# Step 2: Extract SAM masks (if not done)
+python extract_segment_everything_masks.py \
+    --image_root <path to scene data> \
+    --sam_checkpoint_path ./third_party/segment-anything/sam_ckpt/sam_vit_h_4b8939.pth \
+    --downsample 1
+```
+
+### Run Stage 3 (one command)
+
+```bash
+python run_stage3.py \
+    --model_path ./output/my_scene/ \
+    --source_path ./data/my_scene/ \
+    --output_dir ./output/my_scene/gscene_export/ \
+    --knn_smooth_k 16 \
+    --scene_name my_scene
+```
+
+### Command-line Arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `--model_path` | (required) | Path to the pre-trained 3DGS model directory |
+| `--source_path` | (required) | Path to the scene data directory (containing `images/` and `sam_masks/`) |
+| `--output_dir` | `model_path/gscene_export` | Output directory for the `.gscene` export |
+| `--scene_name` | `scene` | Name prefix for output files |
+| `--iteration` | `-1` | 3DGS iteration to load (`-1` = latest) |
+| `--knn_smooth_k` | `16` | Number of KNN neighbors for ID smoothing (set to `0` to disable smoothing) |
+| `--id_to_name_json` | `None` | Optional JSON file mapping object IDs to human-readable names |
+| `--batch_size` | `100000` | Batch size for Gaussian projection (reduce if GPU OOM) |
+
+### Output Directory Structure
+
+```
+gscene_export/
+├── my_scene.ply              # Full scene PLY (standard 3DGS format)
+├── my_scene.gscene           # Structured metadata JSON
+├── objects/
+│   ├── background.ply        # Background Gaussians in local coordinates
+│   ├── object_1.ply          # Object 1 Gaussians in local coordinates
+│   ├── object_2.ply          # Object 2 Gaussians in local coordinates
+│   └── ...
+├── object_ids.npy            # (N,) array of per-Gaussian object IDs
+└── vote_counts.npy           # (N, C) vote matrix for debugging
+```
+
+### .gscene Metadata JSON Schema
+
+```json
+{
+  "version": "1.0",
+  "total_gaussians": 500000,
+  "total_objects": 5,
+  "gaussians": [
+    { "index": 0, "semanticID": 0, "objectID": 0 },
+    { "index": 1, "semanticID": 1, "objectID": 3 }
+  ],
+  "objects": [
+    {
+      "id": 0,
+      "name": "background",
+      "gaussian_count": 200000,
+      "gaussian_indices": [0, 1, 2, ...],
+      "centroid": [1.0, 2.0, 3.0],
+      "aabb_min": [-5.0, -5.0, -5.0],
+      "aabb_max": [10.0, 10.0, 10.0],
+      "local_to_world": [[1, 0, 0, 1.0], [0, 1, 0, 2.0], [0, 0, 1, 3.0], [0, 0, 0, 1]]
+    }
+  ]
+}
+```
+
+### Custom Object Names
+
+You can provide a JSON file to map object IDs to human-readable names:
+
+```json
+{
+  "0": "background",
+  "1": "Lathe_01",
+  "2": "Robot_Arm_A",
+  "3": "Conveyor_Belt"
+}
+```
+
+Then pass it via `--id_to_name_json my_names.json`.
+
+### Pipeline Internals
+
+Stage 3 consists of four steps (all automated by `run_stage3.py`):
+
+1. **Multi-view Voting** (`semantic_voting.py`): Projects each 3D Gaussian center onto every training view, looks up the SAM mask ID at each projected pixel, and accumulates votes. The final object ID per Gaussian is determined by majority vote (argmax).
+
+2. **KNN Smoothing** (`semantic_voting.py`): For each Gaussian, examines the K nearest spatial neighbors and replaces isolated IDs with the dominant neighbor ID. This removes boundary noise.
+
+3. **Object Metadata Computation** (`object_utils.py`): For each unique object ID, computes the geometric centroid, AABB bounding box, 4×4 local-to-world transform matrix, and the list of Gaussian indices.
+
+4. **Export** (`export_gscene.py`): Writes the full scene PLY, per-object PLYs (in local coordinates), and the structured `.gscene` metadata JSON.
+
+### Running Tests
+
+```bash
+python -m pytest tests/test_stage3.py -v
+```
+
 ## Citation
 If you find this project helpful for your research, please consider citing the report and giving a ⭐.
 ```BibTex
