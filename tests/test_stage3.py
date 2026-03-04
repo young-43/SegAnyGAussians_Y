@@ -28,12 +28,12 @@ class TestObjectUtils(unittest.TestCase):
     """Tests for object_utils.py"""
 
     def setUp(self):
-        # Create synthetic Gaussian positions: two clusters
+        # Create synthetic Gaussian positions: two object clusters + background
         np.random.seed(42)
-        cluster_a = np.random.randn(50, 3) + np.array([10, 0, 0])
-        cluster_b = np.random.randn(30, 3) + np.array([0, 10, 0])
+        cluster_1 = np.random.randn(50, 3) + np.array([10, 0, 0])
+        cluster_2 = np.random.randn(30, 3) + np.array([0, 10, 0])
         background = np.random.randn(20, 3) * 5
-        self.xyz = np.vstack([background, cluster_a, cluster_b]).astype(np.float32)
+        self.xyz = np.vstack([background, cluster_1, cluster_2]).astype(np.float32)
         self.object_ids = np.array(
             [0] * 20 + [1] * 50 + [2] * 30, dtype=np.int64
         )

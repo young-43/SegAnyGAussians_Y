@@ -99,12 +99,10 @@ def multi_view_voting(gaussians_xyz, cameras, sam_masks_dir, image_dir,
             cam.image_name + '.pt'
         )
         if not os.path.exists(mask_path):
-            # Try common extensions
-            for ext in ['.pt']:
-                alt = os.path.join(sam_masks_dir, cam.image_name + ext)
-                if os.path.exists(alt):
-                    mask_path = alt
-                    break
+            # Try alternative path with .pt extension
+            alt = os.path.join(sam_masks_dir, cam.image_name + '.pt')
+            if os.path.exists(alt):
+                mask_path = alt
 
         if os.path.exists(mask_path):
             masks = torch.load(mask_path, map_location='cpu')  # (num_masks, H, W) bool
